@@ -1,6 +1,15 @@
 library(dkstat)
+library(ggplot2) # brugt til at lave et plot
+library(tidyr)  # brugt til at omforme det sidste data
+library(ggcorrplot)
+
+dstsearch <- dst_search("Forbrug")
+
+print(dstsearch)
 
 metadata <- dst_meta("FU02", lang = "da")
+
+print(metadata)
 
 alko_query <- list(
   PRISENHED = "Faste priser",
@@ -27,6 +36,8 @@ alko_api <- reshape(
   timevar = "KONSUMGRP",
   idvar = "TID",
   direction = "wide")
+
+#### Subsetting område ####
 
 # fjern hver anden kolone fordi kolonen består kun af "faste priser"
 alko_api <- alko_api[, seq(1, ncol(alko_api), by = 2)]
@@ -82,7 +93,7 @@ rownames(alko) <- NULL
 library(ggplot2) # brugt til at lave et plot
 library(tidyr)  # brugt til at omforme det sidste data
 
-# Omdanne data til long format 
+# Omdanne data til long format (LAVE EKSEMPEL MED BASE-R)
 alko_long <- pivot_longer(alko, cols = -Year, names_to = "Kategori", values_to = "Forbrug")
 
 # konvertere Forbrug kolone til numeriske 
@@ -90,13 +101,58 @@ alko_long$Forbrug <- as.numeric(alko_long$Forbrug)
 
 # Fjerne denne kolone fordi det er en sammensmeltning af alle kategorier
 alko_long <- alko_long[alko_long$Kategori != "ALKOHOLISKE DRIKKEVARER OG TOBAK", ]
+alko$`ALKOHOLISKE DRIKKEVARER OG TOBAK` <- NULL
 
-# Skabe plot 
+# lave alle koloner om til numeriske ved brug af lapply
+alko[] <- lapply(alko, as.numeric)
+
+forbrug_2022 <- data.frame(
+  Kategori = c("Spiritus og Likør", "Vin af druer", "Pilsner og Guldøl"),
+  Forbrug = c(867, 2530, 888)
+)
+
+# lave row index til at hjælpe med at danne totalforbrug for et bestemt 
+row_index <- 23
+
+# lave en dataframe med det totale forbrug for året 2022
+totalforbrug_2022 <- as.data.frame(sum(alko[row_index, names(alko) != "Year"]))
+
+# omforme dtaframen så jeg kan udføre en rbind i næste kode stykke
+totalforbrug_2022$Kategori <- "Alle"
+colnames(totalforbrug_2022)[1] <- "Forbrug"
+totalforbrug_2022 <- totalforbrug_2022[, c(2,1)]
+
+# rbind de to dtaframe sammen 
+forbrug_2022 <- rbind(forbrug_2022, totalforbrug_2022)
+
+# lave en barplot med tre søjler for at vise procentvis hvad de udgør af hele forbruget 
+plot_data <- forbrug_2022[1:3, ] # Vælg de første 3 rækker
+plot_data$Procent <- round((plot_data$Forbrug / forbrug_2022$Forbrug[4]) * 100, 1) # Beregn procent
+
+#### Lav bar-plot med de tre største kategorier ####
+ggplot(plot_data, aes(x = Kategori, y = Procent, fill = Kategori)) +
+  geom_bar(stat = "identity", width = .6) +  # Bar-graf
+  scale_fill_manual(values = c("#F9B041", "#B8D6EE", "#002E6D")) +  # Farver til søjler
+  scale_y_continuous(limits = c(0, 60), expand = c(0, 0)) + 
+  labs(
+    title = paste0("Tilsammen udgør vores tre største kategorier ", 
+                   sum(plot_data$Procent), " %"),
+    x = "Kategori",
+    y = "Procent (%)"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),  # Roter x-aksen
+    plot.title = element_text(hjust = 0.5, size = 14)   # Centrer titlen
+  )
+
+#### Plot over alle kategorier ####
+# Skabe plot over alle kategorier målt i kr pr. husstand 
 ggplot(alko_long, aes(x = Year, y = Forbrug, color = Kategori, group = Kategori)) +
   geom_line(size = 0.5) +  # Tyggelse af linjerne
   geom_point(size = 0) +   # størrelsen af punkterne
   labs(
-    title = "Udvikling i alkoholdforbrug over tid",
+    title = "Dansker bruger flest penge på Vin af druer",
     x = "År",
     y = "Faste priser i kr. pr. husstand",
     color = "Kategori"
@@ -111,7 +167,7 @@ ggplot(alko_long, aes(x = Year, y = Forbrug, color = Kategori, group = Kategori)
     legend.text = element_text(size = 10)               # Adjust legend text size
   )
 
-# fokus på de fire kategorier
+# fokus på de fire kategorier (LIGEGYLDIGT PLOT)
 
 # Reshape data from wide to long format
 alko_long <- pivot_longer(alko, cols = -Year, names_to = "Kategori", values_to = "Forbrug")
@@ -165,17 +221,131 @@ ggplot(alko_long, aes(x = Year, y = Forbrug, color = color_group, group = Katego
     legend.text = element_text(size = 10)   # Legend text size
   )
 
-#### 4.2 #### 
+#### NYE PLOT MED FOKUS PÅ DE 3 STORE KATEGORIER ####
 
-library(ggcorrplot)
+# Filtrer kun de tre ønskede kategorier med base R
+plot_data1 <- alko_long[alko_long$Kategori %in% c("Spiritus og likør", "Vin af druer", "Pilsnerøl, guldøl"), ]
+
+# Skab plottet
+ggplot(plot_data1, aes(x = Year, y = Forbrug, color = Kategori, group = Kategori)) +
+  geom_line(size = 0.8) +  # Tykkelsen af linjerne
+  geom_point(size = 2) +   # Størrelsen af punkterne
+  labs(
+    title = "Dansker bruger flest penge på Vin af druer",
+    x = "År",
+    y = "Faste priser i kr. pr. husstand",
+    color = "Kategori"
+  ) +
+  scale_y_continuous(breaks = seq(0, 3000, by = 1000)) +  # Punkter på y-aksen
+  scale_color_manual(  # Angiv farverne manuelt
+    values = c(
+      "Spiritus og likør" = "#B8D6EE",   
+      "Vin af druer" = "#002E6D",       
+      "Pilsnerøl, guldøl" = "#F9B041"   
+    )
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    text = element_text(size = 12),
+    plot.title = element_text(hjust = 0.5, size = 16),  # Centrer titlen
+    legend.position = "bottom",                         # Flyt legen til bunden
+    legend.title = element_text(size = 12),             # Størrelse på legen-titel
+    legend.text = element_text(size = 10)               # Størrelse på legen-tekst
+  )
+
+#### PLOT TIL DE TO KATEGORIER SOM OVERLAPPER I 2016 ####
+
+# Filtrer kun de to ønskede kategorier i base R
+plot_data2 <- alko_long[alko_long$Kategori %in% c("Pilsnerøl, guldøl", "Andre alkoholholdige øl"), ]
+
+# Genskab plottet
+ggplot(plot_data2, aes(x = Year, y = Forbrug, color = Kategori, group = Kategori)) +
+  geom_line(size = 0.8) +  # Tykkelsen af linjerne
+  geom_point(size = 2) +   # Størrelsen af punkterne
+  labs(
+    title = "Pilsnerøl og andre alkoholholdige øl overlapper i 2016",
+    x = "År",
+    y = "Faste priser i kr. pr. husstand",
+    color = "Kategori"
+  ) +
+  scale_y_continuous(breaks = seq(0, 3000, by = 1000)) +  # Punkter på y-aksen
+  scale_color_manual(  # Angiv farver manuelt
+    values = c(
+      "Pilsnerøl, guldøl" = "#F9B041",          
+      "Andre alkoholholdige øl" = "#002E6D"     
+    )
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    text = element_text(size = 12),
+    plot.title = element_text(hjust = 0.5, size = 16),  # Centrer titlen
+    legend.position = "bottom",                         # Flyt legenden til bunden
+    legend.title = element_text(size = 12),             # Størrelse på legen-titel
+    legend.text = element_text(size = 10)               # Størrelse på legen-tekst
+  )
+
+#### PLOT DE SAMME TO KATEGORIER MEN UDEN DE 2 ÅR DE OVERLAPPER ####
+
+# Filtrer kun de to ønskede kategorier og fjern årene 2015 og 2016
+plot_data3 <- alko_long[alko_long$Kategori %in% c("Pilsnerøl, guldøl", "Andre alkoholholdige øl") &
+                          !alko_long$Year %in% c(2015, 2016), ]
+
+# Genskab plottet
+ggplot(plot_data3, aes(x = Year, y = Forbrug, color = Kategori, group = Kategori)) +
+  geom_line(size = 0.8) +  # Tykkelsen af linjerne
+  geom_point(size = 2) +   # Størrelsen af punkterne
+  labs(
+    title = "Pilsnerøl og andre alkoholholdige øl uden 2015 og 2016",
+    x = "År",
+    y = "Faste priser i kr. pr. husstand",
+    color = "Kategori"
+  ) +
+  scale_y_continuous(breaks = seq(0, 3000, by = 1000)) +  # Punkter på y-aksen
+  scale_color_manual(  # Angiv farver manuelt
+    values = c(
+      "Pilsnerøl, guldøl" = "#F9B041",          
+      "Andre alkoholholdige øl" = "#002E6D"     
+    )
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    text = element_text(size = 12),
+    plot.title = element_text(hjust = 0.5, size = 16),  # Centrer titlen
+    legend.position = "bottom",                         # Flyt legenden til bunden
+    legend.title = element_text(size = 12),             # Størrelse på legen-titel
+    legend.text = element_text(size = 10)               # Størrelse på legen-tekst
+  )
+
+
+#### PROCENTVIS ÆNDRING AF DE TRE KATEGORIER ####
+
+# Spiritus og likør
+# værdi i 2022 - værdi i 2000 / værdi i 2000
+ændring1 <- (alko[23,2]-alko[1,2])/alko[1,2]
+procent_ændring1 <- (867-697)/697
+print(procent_ændring)
+#24% ændring
+
+# Vin af druer
+ændring2 <- (alko[23,4]-alko[1,4])/alko[1,4]
+print(ændring2)
+#-6% ændring 
+
+# Pilsnerøl, guldøl
+ændring3 <- (alko[23,8]-alko[1,8])/alko[1,8]
+print(ændring3)
+#-51%
+
+#### 4.2 Korrelationsmatrix #### 
 
 # lav en dataframe med disse tre koloner fra alko dataframen 
-kor_mat_plot <- alko[, c("Spiritus og likør", "Vin af druer", "Pilsnerøl, guldøl")]
+kor_mat_plot <- alko[, c("Spiritus og likør", "Vin af druer", "Pilsnerøl, guldøl", "Andre alkoholholdige øl")]
 
 # konvertere koloner til numerics
 kor_mat_plot$`Spiritus og likør` <- as.numeric(kor_mat_plot$`Spiritus og likør`)
 kor_mat_plot$`Vin af druer` <- as.numeric(kor_mat_plot$`Vin af druer`)
 kor_mat_plot$`Pilsnerøl, guldøl` <- as.numeric(kor_mat_plot$`Pilsnerøl, guldøl`)
+kor_mat_plot$`Andre alkoholholdige øl` <- as.numeric(kor_mat_plot$`Andre alkoholholdige øl`)
 
 # Beregn korrelationsmatrix
 kor_matrix <- cor(kor_mat_plot, use = "complete.obs")
@@ -192,3 +362,35 @@ ggcorrplot(kor_matrix,
            colors = c("blue", "white", "red"), # Color gradient
            title = "Stiger danskernes forbrug af vin eller øl, stiger modparten ligeledes",
            legend.title = "Corr") # Title of the legend
+
+
+#### Korrelationsmatrix uden 2015-16 ####
+
+# Lav en kopi af data
+alko_filtered1 <- alko
+
+# Sæt værdier til NA for Pilsnerøl, guldøl og Andre alkoholholdige øl i 2015 og 2016
+alko_filtered1$`Pilsnerøl, guldøl`[alko_filtered1$Year %in% c(2015, 2016)] <- NA
+alko_filtered1$`Andre alkoholholdige øl`[alko_filtered1$Year %in% c(2015, 2016)] <- NA
+
+# Opret en ny dataframe med de ønskede kolonner
+kor_mat_plot <- alko_filtered1[, c("Pilsnerøl, guldøl", "Andre alkoholholdige øl")]
+
+# Konverter kolonner til numerics (hvis nødvendigt)
+kor_mat_plot[] <- lapply(kor_mat_plot, as.numeric)
+
+# Beregn korrelationsmatrix med de opdaterede data
+kor_matrix <- cor(kor_mat_plot, use = "pairwise.complete.obs")
+
+# Udskriv korrelationsmatrix
+print(kor_matrix)
+
+ggcorrplot(kor_matrix, 
+           method = "square",    # Shape of the plot (square tiles)
+           type = "lower",       # Display only lower triangle of the matrix
+           lab = TRUE,           # Add correlation coefficients to the plot
+           lab_size = 5,         # Size of the labels
+           colors = c("blue", "white", "red"), # Color gradient
+           title = "Korrelation uden 2015-2016 for udvalgte kolonner",
+           legend.title = "Corr")
+
